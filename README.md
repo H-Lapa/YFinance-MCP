@@ -23,7 +23,7 @@ A Python [MCP](https://modelcontextprotocol.io) server that gives an LLM client 
 
 - Python ≥3.10
 - [`uv`](https://docs.astral.sh/uv/) — install with `pip install uv` if you don't have it
-- Node.js/`npx` on PATH — only needed for the MCP Inspector (`mcp dev`), not for running the server itself
+- Node.js ≥22.19.0/`npx` on PATH — only needed for the MCP Inspector (`mcp dev`), not for running the server itself
 
 ## Install
 
@@ -35,13 +35,25 @@ This creates `.venv/` and installs runtime + dev dependencies (`mcp[cli]`, `yfin
 
 ## Local testing with MCP Inspector
 
-The fastest way to exercise every tool/prompt without wiring up Claude at all:
+The fastest way to exercise every tool/prompt without wiring up Claude at all. Requires **Node.js ≥22.19.0** on PATH (`node --version` to check) — the Inspector itself is a Node package pulled on demand via `npx`, nothing to install ahead of time.
 
 ```bash
 uv run mcp dev src/finance_mcp/server.py
 ```
 
-This launches the MCP Inspector — a browser UI where you pick a tool, fill in its arguments, and see both the exact request sent and the raw response returned. Good first stop after any change: try `get_quote` with `["AAPL"]` and with an invalid ticker to confirm both the happy path and the error path look right.
+This prints a URL like `http://127.0.0.1:6274?MCP_INSPECTOR_API_TOKEN=...` and opens it in your browser — a UI where you pick a tool, fill in its arguments, and see both the exact JSON-RPC request sent and the raw response returned in the Messages panel. Good first stop after any change: try `get_quote` with `["AAPL"]` and with an invalid ticker to confirm both the happy path and the error path look right. Stop it with Ctrl+C in the terminal it's running in when you're done.
+
+<details>
+<summary>Troubleshooting: "Cannot find native binding" or "styleText" errors</summary>
+
+Both are caused by a stale `npx` cache left over from a Node.js version upgrade (npm's optional-dependency resolution installs platform/version-specific native binaries the first time it runs a package, and they don't get refreshed automatically). Fix:
+
+```bash
+npm cache clean --force
+```
+
+If that alone doesn't fix it, find and delete the specific cached install under `%LOCALAPPDATA%\npm-cache\_npx\<hash>\` (the one whose `package.json` mentions `@modelcontextprotocol/inspector`), then rerun `uv run mcp dev ...` to force a clean reinstall.
+</details>
 
 ## Running tests
 
