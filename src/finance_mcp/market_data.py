@@ -258,3 +258,42 @@ def fetch_dividends(ticker: str, period: str = "5y") -> dict:
             for date, amount in dividends.items()
         ],
     }
+
+
+_FINANCIAL_STATEMENT_ATTRS = {
+    ("income", "annual"): "financials",
+    ("income", "quarterly"): "quarterly_financials",
+    ("balance_sheet", "annual"): "balance_sheet",
+    ("balance_sheet", "quarterly"): "quarterly_balance_sheet",
+    ("cashflow", "annual"): "cashflow",
+    ("cashflow", "quarterly"): "quarterly_cashflow",
+}
+
+
+def fetch_financials(ticker: str, statement: str = "income", period: str = "annual") -> pd.DataFrame:
+    """Fetch a financial statement for a single ticker.
+
+    Returns the full statement exactly as yfinance provides it (every line
+    item, every available period) rather than a curated "key metrics"
+    subset. A fixed list of line items to extract would silently go missing
+    or misleading for whole sectors -- a bank's balance sheet diverges
+    structurally from an industrial's past the first few rows (loans vs.
+    inventory, etc.), confirmed by comparing JPM against AAPL live.
+    """
+    symbol = ticker.strip().upper()
+    if not symbol:
+        raise MarketDataError("ticker must not be empty")
+
+    key = (statement, period)
+    if key not in _FINANCIAL_STATEMENT_ATTRS:
+        valid_statements = sorted({s for s, _ in _FINANCIAL_STATEMENT_ATTRS})
+        valid_periods = sorted({p for _, p in _FINANCIAL_STATEMENT_ATTRS})
+        raise MarketDataError(
+            f"invalid statement/period combination: statement={statement!r}, period={period!r} "
+            f"-- statement must be one of {valid_statements}, period must be one of {valid_periods}"
+        )
+
+    df = getattr(yf.Ticker(symbol), _FINANCIAL_STATEMENT_ATTRS[key])
+    if df.empty:
+        raise MarketDataError(f"no {statement} data found for '{symbol}'")
+    return df

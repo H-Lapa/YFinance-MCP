@@ -238,3 +238,58 @@ class TestFetchDividends:
         result = market_data.fetch_dividends("aapl", period="5y")
 
         assert len(result["rows"]) == 1
+
+
+def _statement_df() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            pd.Timestamp("2025-09-30"): [100.0, 40.0],
+            pd.Timestamp("2024-09-30"): [90.0, 35.0],
+        },
+        index=["Total Revenue", "Net Income"],
+    )
+
+
+class TestFetchFinancials:
+    def test_happy_path_income_annual(self, mocker):
+        mock_ticker = mocker.patch("finance_mcp.market_data.yf.Ticker")
+        mock_ticker.return_value.financials = _statement_df()
+
+        result = market_data.fetch_financials("aapl", statement="income", period="annual")
+
+        assert "Total Revenue" in result.index
+
+    def test_happy_path_balance_sheet_quarterly(self, mocker):
+        mock_ticker = mocker.patch("finance_mcp.market_data.yf.Ticker")
+        mock_ticker.return_value.quarterly_balance_sheet = _statement_df()
+
+        result = market_data.fetch_financials("aapl", statement="balance_sheet", period="quarterly")
+
+        assert not result.empty
+
+    def test_happy_path_cashflow_annual(self, mocker):
+        mock_ticker = mocker.patch("finance_mcp.market_data.yf.Ticker")
+        mock_ticker.return_value.cashflow = _statement_df()
+
+        result = market_data.fetch_financials("aapl", statement="cashflow", period="annual")
+
+        assert not result.empty
+
+    def test_invalid_statement_raises(self):
+        with pytest.raises(MarketDataError, match="statement"):
+            market_data.fetch_financials("AAPL", statement="bogus", period="annual")
+
+    def test_invalid_period_raises(self):
+        with pytest.raises(MarketDataError, match="period"):
+            market_data.fetch_financials("AAPL", statement="income", period="bogus")
+
+    def test_empty_statement_raises(self, mocker):
+        mock_ticker = mocker.patch("finance_mcp.market_data.yf.Ticker")
+        mock_ticker.return_value.financials = pd.DataFrame()
+
+        with pytest.raises(MarketDataError, match="income"):
+            market_data.fetch_financials("AAPL", statement="income", period="annual")
+
+    def test_blank_ticker_raises(self):
+        with pytest.raises(MarketDataError):
+            market_data.fetch_financials("   ")
