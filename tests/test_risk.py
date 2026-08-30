@@ -59,3 +59,28 @@ class TestMaxDrawdown:
         result = risk.max_drawdown(prices)
 
         assert result == pytest.approx(0.0)
+
+
+class TestSharpeRatio:
+    def test_matches_hand_computed_formula(self):
+        returns = pd.Series([0.01, -0.01, 0.02, -0.02])
+        annual_rf = 0.05
+        trading_days = 252
+
+        result = risk.sharpe_ratio(returns, annual_rf, trading_days=trading_days)
+
+        daily_rf = annual_rf / trading_days
+        expected = (
+            (statistics.mean(returns) - daily_rf)
+            / statistics.stdev(returns)
+            * math.sqrt(trading_days)
+        )
+        assert result == pytest.approx(expected)
+
+    def test_zero_risk_free_rate_reduces_to_mean_over_std(self):
+        returns = pd.Series([0.01, 0.02, -0.005, 0.015])
+
+        result = risk.sharpe_ratio(returns, 0.0)
+
+        expected = statistics.mean(returns) / statistics.stdev(returns) * math.sqrt(252)
+        assert result == pytest.approx(expected)

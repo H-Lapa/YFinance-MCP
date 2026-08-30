@@ -32,3 +32,18 @@ def volatility(returns: pd.Series, trading_days: int = TRADING_DAYS_PER_YEAR) ->
 def max_drawdown(prices: pd.Series) -> float:
     """Largest peak-to-trough decline over the series, as a negative fraction (e.g. -0.23 = -23%)."""
     return float((prices / prices.cummax() - 1).min())
+
+
+def sharpe_ratio(
+    returns: pd.Series,
+    risk_free_rate_annual: float,
+    trading_days: int = TRADING_DAYS_PER_YEAR,
+) -> float:
+    """Annualized Sharpe ratio: mean daily excess return over daily std, scaled by sqrt(trading_days).
+
+    The annual risk-free rate is converted to a daily rate by simple division
+    (risk_free_rate_annual / trading_days), not geometric compounding.
+    """
+    daily_risk_free = risk_free_rate_annual / trading_days
+    excess_returns = returns - daily_risk_free
+    return float(excess_returns.mean() / returns.std(ddof=1) * math.sqrt(trading_days))
