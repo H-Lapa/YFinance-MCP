@@ -201,3 +201,60 @@ def search_tickers(query: str, max_results: int = 5) -> list[dict]:
         }
         for q in quotes
     ]
+
+
+_DIVIDEND_PERIOD_DAYS = {
+    "1y": 365,
+    "2y": 730,
+    "5y": 1825,
+    "10y": 3650,
+    "max": None,
+}
+
+
+def fetch_dividends(ticker: str, period: str = "5y") -> dict:
+    """Fetch dividend payment history for a single ticker.
+
+    yfinance's `.dividends` always returns the *full* history (no period
+    argument), so filtering happens here. Same timezone-stripping as
+    `risk._fetch_price_series` and for the same reason: yfinance timestamps
+    these per the ticker's own exchange timezone.
+    """
+    symbol = ticker.strip().upper()
+    if not symbol:
+        raise MarketDataError("ticker must not be empty")
+    if period not in _DIVIDEND_PERIOD_DAYS:
+        raise MarketDataError(f"invalid period '{period}' -- must be one of {sorted(_DIVIDEND_PERIOD_DAYS)}")
+
+    dividends = yf.Ticker(symbol).dividends
+    if dividends.empty:
+        raise MarketDataError(f"no dividend history found for '{symbol}' -- it may not pay dividends")
+
+    index = dividends.index
+    if index.tz is not None:
+        index = index.tz_localize(None)
+    dividends = dividends.set_axis(index.normalize())
+
+    now = pd.Timestamp.now().normalize()
+    trailing_12mo_total = float(dividends[dividends.index >= now - pd.Timedelta(days=365)].sum())
+
+    days = _DIVIDEND_PERIOD_DAYS[period]
+    if days is not None:
+        dividends = dividends[dividends.index >= now - pd.Timedelta(days=days)]
+        if dividends.empty:
+            raise MarketDataError(
+                f"no dividend payments for '{symbol}' in the last {period} -- try a longer period"
+            )
+
+    dividends, note = _downsample(dividends, MAX_HISTORY_ROWS)
+
+    return {
+        "ticker": symbol,
+        "period": period,
+        "note": note,
+        "trailing_12mo_total": trailing_12mo_total,
+        "rows": [
+            {"date": date.strftime("%Y-%m-%d"), "amount": round(float(amount), 4)}
+            for date, amount in dividends.items()
+        ],
+    }

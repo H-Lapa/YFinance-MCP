@@ -168,3 +168,73 @@ class TestSearchTickers:
     def test_blank_query_raises(self):
         with pytest.raises(MarketDataError):
             market_data.search_tickers("   ")
+
+
+class TestFetchDividends:
+    def test_happy_path_and_trailing_12mo_total(self, mocker):
+        now = pd.Timestamp.now().normalize()
+        dates = pd.DatetimeIndex([now - pd.Timedelta(days=d) for d in (300, 210, 120, 30)])
+        mock_ticker = mocker.patch("finance_mcp.market_data.yf.Ticker")
+        mock_ticker.return_value.dividends = pd.Series([0.24, 0.24, 0.25, 0.25], index=dates)
+
+        result = market_data.fetch_dividends("aapl", period="5y")
+
+        assert result["ticker"] == "AAPL"
+        assert len(result["rows"]) == 4
+        assert result["trailing_12mo_total"] == pytest.approx(0.98)
+
+    def test_empty_dividend_history_raises(self, mocker):
+        mock_ticker = mocker.patch("finance_mcp.market_data.yf.Ticker")
+        mock_ticker.return_value.dividends = pd.Series(dtype=float)
+
+        with pytest.raises(MarketDataError, match="dividend"):
+            market_data.fetch_dividends("BOGUS")
+
+    def test_invalid_period_raises(self, mocker):
+        mock_ticker = mocker.patch("finance_mcp.market_data.yf.Ticker")
+        mock_ticker.return_value.dividends = pd.Series([0.25], index=[pd.Timestamp.now()])
+
+        with pytest.raises(MarketDataError, match="invalid period"):
+            market_data.fetch_dividends("AAPL", period="3y")
+
+    def test_period_filters_display_but_not_trailing_12mo_total(self, mocker):
+        now = pd.Timestamp.now().normalize()
+        recent = now - pd.Timedelta(days=100)
+        old = now - pd.Timedelta(days=800)  # outside a "2y" filter
+        mock_ticker = mocker.patch("finance_mcp.market_data.yf.Ticker")
+        mock_ticker.return_value.dividends = pd.Series([0.20, 0.25], index=[old, recent])
+
+        result = market_data.fetch_dividends("aapl", period="2y")
+
+        assert len(result["rows"]) == 1
+        assert result["trailing_12mo_total"] == pytest.approx(0.25)
+
+    def test_no_payments_in_period_raises(self, mocker):
+        now = pd.Timestamp.now().normalize()
+        old = now - pd.Timedelta(days=800)
+        mock_ticker = mocker.patch("finance_mcp.market_data.yf.Ticker")
+        mock_ticker.return_value.dividends = pd.Series([0.20], index=[old])
+
+        with pytest.raises(MarketDataError, match="1y"):
+            market_data.fetch_dividends("aapl", period="1y")
+
+    def test_downsamples_long_history(self, mocker):
+        now = pd.Timestamp.now().normalize()
+        dates = pd.DatetimeIndex([now - pd.Timedelta(days=30 * i) for i in range(100)])
+        mock_ticker = mocker.patch("finance_mcp.market_data.yf.Ticker")
+        mock_ticker.return_value.dividends = pd.Series([0.25] * 100, index=dates)
+
+        result = market_data.fetch_dividends("aapl", period="10y")
+
+        assert result["note"] is not None
+        assert len(result["rows"]) <= market_data.MAX_HISTORY_ROWS
+
+    def test_strips_timezone(self, mocker):
+        now = pd.Timestamp.now(tz="America/New_York").normalize()
+        dates = pd.DatetimeIndex([now - pd.Timedelta(days=30)])
+        mock_ticker = mocker.patch("finance_mcp.market_data.yf.Ticker")
+        mock_ticker.return_value.dividends = pd.Series([0.25], index=dates)
+
+        result = market_data.fetch_dividends("aapl", period="5y")
+
+        assert len(result["rows"]) == 1
