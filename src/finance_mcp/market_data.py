@@ -87,6 +87,30 @@ def fetch_quotes(tickers: list[str]) -> list[dict]:
     return results
 
 
+def _downsample(
+    data: pd.DataFrame | pd.Series, max_rows: int
+) -> tuple[pd.DataFrame | pd.Series, str | None]:
+    """Stride-sample down to at most `max_rows` rows if `data` exceeds it.
+
+    Works on either a DataFrame or a Series (both support `.iloc[::stride]`
+    and `len()`), so it's shared between any tool whose response would
+    otherwise dump an unbounded time series into the model's context window.
+    Returns (possibly-unchanged data, note-or-None) rather than mutating in
+    place, so a caller that doesn't downsample can't forget to check.
+    """
+    total_rows = len(data)
+    if total_rows <= max_rows:
+        return data, None
+
+    stride = math.ceil(total_rows / max_rows)
+    sampled = data.iloc[::stride]
+    note = (
+        f"Showing every {stride}-th row ({len(sampled)} of {total_rows} total) to keep the "
+        "response compact. Request a shorter period for full resolution."
+    )
+    return sampled, note
+
+
 def fetch_history(ticker: str, period: str = "1mo", interval: str = "1d") -> dict:
     """Fetch OHLCV history for a single ticker, downsampled to stay response-size safe."""
     symbol = ticker.strip().upper()
@@ -100,15 +124,7 @@ def fetch_history(ticker: str, period: str = "1mo", interval: str = "1d") -> dic
             "-- check the ticker symbol and that the period/interval combination is valid"
         )
 
-    note = None
-    total_rows = len(df)
-    if total_rows > MAX_HISTORY_ROWS:
-        stride = math.ceil(total_rows / MAX_HISTORY_ROWS)
-        df = df.iloc[::stride]
-        note = (
-            f"Showing every {stride}-th row ({len(df)} of {total_rows} total) to keep the "
-            "response compact. Request a shorter period or coarser interval for full resolution."
-        )
+    df, note = _downsample(df, MAX_HISTORY_ROWS)
 
     return {
         "ticker": symbol,
