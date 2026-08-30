@@ -145,3 +145,37 @@ class TestCorrelationMatrix:
         assert result.loc["A", "B"] == pytest.approx(1.0)
         assert result.loc["A", "C"] == pytest.approx(-1.0)
         assert result.loc["A", "A"] == pytest.approx(1.0)
+
+
+class TestPortfolioMetrics:
+    def test_matches_direct_calculation_on_combined_series(self):
+        dates = pd.date_range("2024-01-01", periods=4)
+        a = pd.Series([0.01, 0.02, 0.03, 0.04], index=dates)
+        b = pd.Series([0.02, 0.01, 0.04, 0.03], index=dates)
+
+        result = risk.portfolio_metrics({"A": 0.5, "B": 0.5}, {"A": a, "B": b})
+
+        # Independently verified: Var(0.5A + 0.5B) computed directly on the
+        # combined series must equal the covariance-matrix quadratic form
+        # (w . Sigma . w) the function actually uses -- a mathematical
+        # identity, so any mismatch means the matrix math is implemented wrong.
+        combined = 0.5 * a + 0.5 * b
+        expected_return = statistics.mean(combined) * 252
+        expected_vol = statistics.stdev(combined) * math.sqrt(252)
+
+        assert result["annualized_return"] == pytest.approx(expected_return)
+        assert result["annualized_volatility"] == pytest.approx(expected_vol)
+
+    def test_weights_auto_normalize_dollars_vs_percentages(self):
+        dates = pd.date_range("2024-01-01", periods=4)
+        a = pd.Series([0.01, 0.02, 0.03, 0.04], index=dates)
+        b = pd.Series([0.02, 0.01, 0.04, 0.03], index=dates)
+
+        pct_result = risk.portfolio_metrics({"A": 0.5, "B": 0.5}, {"A": a, "B": b})
+        dollar_result = risk.portfolio_metrics({"A": 5000, "B": 5000}, {"A": a, "B": b})
+
+        assert dollar_result["annualized_return"] == pytest.approx(pct_result["annualized_return"])
+        assert dollar_result["annualized_volatility"] == pytest.approx(
+            pct_result["annualized_volatility"]
+        )
+        assert dollar_result["weights"] == pytest.approx(pct_result["weights"])

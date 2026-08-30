@@ -73,3 +73,36 @@ def beta(asset_returns: pd.Series, benchmark_returns: pd.Series) -> float:
 def correlation_matrix(returns_by_ticker: dict[str, pd.Series]) -> pd.DataFrame:
     """Pairwise correlation matrix of daily returns across tickers."""
     return pd.DataFrame(returns_by_ticker).corr()
+
+
+def portfolio_metrics(
+    weights: dict[str, float],
+    returns_by_ticker: dict[str, pd.Series],
+    trading_days: int = TRADING_DAYS_PER_YEAR,
+) -> dict:
+    """Weighted portfolio return and volatility.
+
+    `weights` values are auto-normalized to sum to 1, so both percentages
+    (0.6/0.4) and raw dollar amounts (6000/4000) produce the same result.
+    Volatility uses the full covariance matrix (w . Sigma . w), not a naive
+    weighted average of individual volatilities -- those differ whenever the
+    holdings aren't perfectly correlated.
+    """
+    total_weight = sum(weights.values())
+    normalized_weights = {ticker: w / total_weight for ticker, w in weights.items()}
+
+    returns_df = pd.DataFrame(returns_by_ticker).dropna()
+    weight_vector = pd.Series(normalized_weights).reindex(returns_df.columns)
+
+    portfolio_returns = returns_df.dot(weight_vector)
+    annualized_return = float(portfolio_returns.mean() * trading_days)
+
+    annualized_covariance = returns_df.cov(ddof=1) * trading_days
+    portfolio_variance = float(weight_vector @ annualized_covariance @ weight_vector)
+    annualized_volatility = math.sqrt(portfolio_variance)
+
+    return {
+        "weights": normalized_weights,
+        "annualized_return": annualized_return,
+        "annualized_volatility": annualized_volatility,
+    }
