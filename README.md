@@ -12,11 +12,13 @@ Market data tools fetch and format what yfinance returns. Risk/portfolio tools g
 | `get_historical_prices(ticker, period, interval)` | OHLCV history for a ticker (auto-downsampled if the range is large) |
 | `get_company_info(ticker)` | Sector, industry, business summary, P/E, dividend yield, beta |
 | `search_ticker(query)` | Resolve a company name to its ticker symbol(s) |
+| `get_dividends(ticker, period)` | Dividend payment history plus trailing-12-month total |
+| `get_financials(ticker, statement, period)` | Full income statement / balance sheet / cash flow, annual or quarterly |
 | `get_risk_metrics(ticker, period, benchmark=None, risk_free_rate=None, confidence=0.95)` | Volatility, max drawdown, Sharpe ratio, historical VaR; beta vs. `benchmark` if given |
 | `get_correlation(tickers, period)` | Pairwise correlation matrix of daily returns across tickers |
 | `get_portfolio_metrics(holdings, period)` | Weighted annualized return/volatility for a set of holdings (`{ticker: weight}`, auto-normalized) |
 
-### Methodology behind the risk/portfolio tools
+### Notable design decisions
 
 - **Returns**: simple (arithmetic) daily returns throughout, not log returns.
 - **Annualization**: 252 trading days/year; volatility and Sharpe use sample std (`ddof=1`).
@@ -24,6 +26,8 @@ Market data tools fetch and format what yfinance returns. Risk/portfolio tools g
 - **Risk-free rate**: live-fetched from `^IRX` (13-week T-bill) when not explicitly passed; falls back to a documented constant if the live fetch fails. The tool response always states which source was used.
 - **Minimum sample size**: `get_risk_metrics` requires at least 20 daily return observations in the chosen period; shorter periods raise a clear error instead of returning a statistically meaningless number.
 - **Bad ticker in `get_correlation` / `get_portfolio_metrics`**: fails the whole request, naming the ticker, rather than silently dropping it and changing what's being measured.
+- **Currency mismatch**: `get_correlation` and `get_portfolio_metrics` detect when tickers are denominated in different currencies (e.g. AAPL/USD vs. a Milan-listed REY.MI/EUR) and add an explicit note — these are local-currency returns and don't include FX exposure between currencies. No conversion is performed; this is a deliberate warn-don't-convert choice, not a TODO.
+- **Financial statements are full pass-through**, not a curated "key metrics" subset — a bank's balance sheet diverges structurally from an industrial's past the first few rows, so a fixed line-item list would silently misrepresent whole sectors.
 
 ## Prompts
 
@@ -146,7 +150,8 @@ src/finance_mcp/
 └── formatting.py   # dict/DataFrame -> compact markdown
 tests/
 ├── test_market_data.py
-└── test_risk.py
+├── test_risk.py
+└── test_formatting.py
 ```
 
 See [CLAUDE.md](CLAUDE.md) for the design constraints (stateless, context-size discipline, yfinance error handling, why `risk.py` doesn't reuse `market_data.fetch_history`) behind this structure.
