@@ -72,3 +72,26 @@ def format_correlation_matrix(matrix: pd.DataFrame) -> str:
         cells = [f"{matrix.loc[row_ticker, col]:.2f}" for col in tickers]
         lines.append(f"| {row_ticker} | " + " | ".join(cells) + " |")
     return "\n".join(lines)
+
+
+def format_portfolio_metrics(result: dict) -> str:
+    """Render a `risk.fetch_portfolio_metrics` result."""
+    weights_lines = "\n".join(
+        f"  {ticker}: {weight:.1%}" for ticker, weight in result["weights"].items()
+    )
+    return "\n".join(
+        [
+            "# Portfolio Metrics",
+            "",
+            "Weights (normalized to sum to 100%):",
+            weights_lines,
+            "",
+            f"Annualized return (mean daily return x 252): {result['annualized_return'] * 100:.2f}%",
+            (
+                f"Annualized volatility (covariance-based, 252 trading days): "
+                f"{result['annualized_volatility'] * 100:.2f}%"
+            ),
+            "",
+            DISCLAIMER,
+        ]
+    )

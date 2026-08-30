@@ -7,6 +7,7 @@ from mcp.server import MCPServer
 from finance_mcp import market_data, risk
 from finance_mcp.formatting import (
     format_correlation_matrix,
+    format_portfolio_metrics,
     format_risk_metrics,
     rows_to_markdown_table,
 )
@@ -100,6 +101,19 @@ def get_correlation(tickers: list[str], period: str = "1y") -> str:
     """
     matrix = risk.fetch_correlation(tickers, period=period)
     return format_correlation_matrix(matrix)
+
+
+@mcp.tool()
+def get_portfolio_metrics(holdings: dict[str, float], period: str = "1y") -> str:
+    """Get weighted annualized return and volatility for a set of holdings.
+
+    `holdings` maps ticker -> weight, e.g. {"AAPL": 0.6, "MSFT": 0.4}. Weights
+    are auto-normalized, so dollar amounts (e.g. {"AAPL": 6000, "MSFT": 4000})
+    work identically to percentages. Fails the whole request if any holding
+    has no data.
+    """
+    result = risk.fetch_portfolio_metrics(holdings, period=period)
+    return format_portfolio_metrics(result)
 
 
 @mcp.prompt()
