@@ -102,3 +102,46 @@ class TestHistoricalVar:
         result = risk.historical_var(returns, confidence=0.90)
 
         assert result == pytest.approx(-0.08)
+
+
+class TestBeta:
+    def test_hand_computed_beta(self):
+        dates = pd.date_range("2024-01-01", periods=4)
+        benchmark_returns = pd.Series([0.01, 0.02, -0.01, 0.03], index=dates)
+        asset_returns = benchmark_returns * 1.5  # exactly 1.5x -> beta must be exactly 1.5
+
+        result = risk.beta(asset_returns, benchmark_returns)
+
+        assert result == pytest.approx(1.5)
+
+    def test_non_overlapping_dates_are_excluded_not_corrupting(self):
+        dates = pd.date_range("2024-01-01", periods=4)
+        benchmark_returns = pd.Series([0.01, 0.02, -0.01, 0.03], index=dates)
+        asset_returns = benchmark_returns * 1.5
+
+        # Extra dates present in only one series -- an outlier value that would
+        # change the result if the alignment were wrong (e.g. positional zip
+        # instead of an index-based inner join).
+        asset_with_outlier = pd.concat(
+            [asset_returns, pd.Series([999.0], index=[pd.Timestamp("2024-02-01")])]
+        )
+        benchmark_with_outlier = pd.concat(
+            [benchmark_returns, pd.Series([-999.0], index=[pd.Timestamp("2024-03-01")])]
+        )
+
+        result = risk.beta(asset_with_outlier, benchmark_with_outlier)
+
+        assert result == pytest.approx(1.5)
+
+
+class TestCorrelationMatrix:
+    def test_perfect_positive_and_negative_correlation(self):
+        a = pd.Series([0.01, 0.02, 0.03, 0.04])
+        b = a * 2
+        c = -a
+
+        result = risk.correlation_matrix({"A": a, "B": b, "C": c})
+
+        assert result.loc["A", "B"] == pytest.approx(1.0)
+        assert result.loc["A", "C"] == pytest.approx(-1.0)
+        assert result.loc["A", "A"] == pytest.approx(1.0)

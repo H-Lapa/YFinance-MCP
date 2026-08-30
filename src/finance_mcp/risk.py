@@ -55,3 +55,21 @@ def historical_var(returns: pd.Series, confidence: float = 0.95) -> float:
     only what actually happened in the sample, unlike a parametric/normal-distribution VaR.
     """
     return float(returns.quantile(1 - confidence))
+
+
+def beta(asset_returns: pd.Series, benchmark_returns: pd.Series) -> float:
+    """Beta of an asset vs. a benchmark: cov(asset, benchmark) / var(benchmark).
+
+    The two series are aligned on their shared index first (inner join) so
+    dates present in only one series don't silently skew the result.
+    """
+    aligned = pd.concat([asset_returns, benchmark_returns], axis=1, join="inner")
+    aligned.columns = ["asset", "benchmark"]
+    covariance = aligned["asset"].cov(aligned["benchmark"])
+    benchmark_variance = aligned["benchmark"].var(ddof=1)
+    return float(covariance / benchmark_variance)
+
+
+def correlation_matrix(returns_by_ticker: dict[str, pd.Series]) -> pd.DataFrame:
+    """Pairwise correlation matrix of daily returns across tickers."""
+    return pd.DataFrame(returns_by_ticker).corr()
