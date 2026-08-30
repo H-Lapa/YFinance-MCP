@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from mcp.server import MCPServer
 
-from finance_mcp import market_data
-from finance_mcp.formatting import rows_to_markdown_table
+from finance_mcp import market_data, risk
+from finance_mcp.formatting import format_risk_metrics, rows_to_markdown_table
 
 mcp = MCPServer("finance-mcp")
 
@@ -59,6 +59,32 @@ def search_ticker(query: str) -> str:
     """Search for a ticker symbol by company name, e.g. 'Apple' -> AAPL."""
     matches = market_data.search_tickers(query)
     return rows_to_markdown_table(matches, columns=["ticker", "name", "exchange", "type"])
+
+
+@mcp.tool()
+def get_risk_metrics(
+    ticker: str,
+    period: str = "1y",
+    benchmark: str | None = None,
+    risk_free_rate: float | None = None,
+    confidence: float = 0.95,
+) -> str:
+    """Get volatility, max drawdown, Sharpe ratio, and historical VaR for a ticker.
+
+    These are all computed from price history, not returned directly by any
+    API -- see the response for the exact methodology used for each number.
+    Pass `benchmark` (e.g. "SPY") to also compute beta vs. that index.
+    Requires at least 20 daily return observations in the chosen period
+    (e.g. period="1mo" or longer).
+    """
+    result = risk.fetch_risk_metrics(
+        ticker,
+        period=period,
+        benchmark=benchmark,
+        risk_free_rate=risk_free_rate,
+        confidence=confidence,
+    )
+    return format_risk_metrics(result)
 
 
 @mcp.prompt()
