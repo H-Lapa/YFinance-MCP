@@ -388,3 +388,17 @@ class TestFetchPortfolioMetrics:
 
         with pytest.raises(MarketDataError, match="MSFT"):
             risk.fetch_portfolio_metrics({"aapl": 0.5, "msft": 0.5})
+
+    def test_returns_currency_per_holding(self, mocker):
+        mock_ticker = mocker.patch("finance_mcp.risk.yf.Ticker")
+        mock_ticker.side_effect = _ticker_side_effect(
+            history_by_symbol={"AAPL": _price_df(30), "REY.MI": _price_df(30, step=0.8)},
+            fast_info_by_symbol={
+                "AAPL": SimpleNamespace(last_price=None, currency="USD"),
+                "REY.MI": SimpleNamespace(last_price=None, currency="EUR"),
+            },
+        )
+
+        result = risk.fetch_portfolio_metrics({"aapl": 0.5, "rey.mi": 0.5})
+
+        assert result["currencies"] == {"AAPL": "USD", "REY.MI": "EUR"}

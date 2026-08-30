@@ -242,11 +242,19 @@ def fetch_portfolio_metrics(holdings: dict[str, float], period: str = "1y") -> d
 
     Same fail-whole-request rule as `fetch_correlation`, for the same reason:
     a silently-dropped holding would change the portfolio being measured.
+
+    The result includes a "currencies" key (see `fetch_correlation`) so
+    callers can warn when a portfolio mixes tickers denominated in
+    different currencies.
     """
     returns_by_ticker = {}
+    currencies = {}
     for raw_ticker in holdings:
         symbol = raw_ticker.strip().upper()
         returns_by_ticker[symbol] = daily_returns(_fetch_price_series(symbol, period))
+        currencies[symbol] = _fetch_currency(symbol)
 
     normalized_holdings = {ticker.strip().upper(): weight for ticker, weight in holdings.items()}
-    return portfolio_metrics(normalized_holdings, returns_by_ticker)
+    result = portfolio_metrics(normalized_holdings, returns_by_ticker)
+    result["currencies"] = currencies
+    return result
