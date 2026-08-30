@@ -204,18 +204,37 @@ def fetch_risk_metrics(
     return result
 
 
-def fetch_correlation(tickers: list[str], period: str = "1y") -> pd.DataFrame:
+def _fetch_currency(symbol: str) -> str | None:
+    """Best-effort currency lookup (e.g. "USD", "EUR"); None if unavailable.
+
+    Never raises -- a currency label isn't worth blocking the whole request
+    over, same reasoning as the risk-free-rate live fetch.
+    """
+    try:
+        return yf.Ticker(symbol).fast_info.currency
+    except Exception:  # noqa: BLE001 -- same inconsistent yfinance failure boundary as elsewhere
+        return None
+
+
+def fetch_correlation(tickers: list[str], period: str = "1y") -> dict:
     """Fetch price history for each ticker and compute their return correlation matrix.
 
     Any ticker with no data aborts the whole request (naming that ticker) --
     silently dropping a constituent would change what the resulting matrix
     actually represents.
+
+    Returns {"matrix": pd.DataFrame, "currencies": {ticker: str | None}} --
+    the currencies are surfaced so callers can warn when a matrix mixes
+    tickers denominated in different currencies (these are local-currency
+    returns; combining them doesn't account for FX exposure between them).
     """
     returns_by_ticker = {}
+    currencies = {}
     for raw in tickers:
         symbol = raw.strip().upper()
         returns_by_ticker[symbol] = daily_returns(_fetch_price_series(symbol, period))
-    return correlation_matrix(returns_by_ticker)
+        currencies[symbol] = _fetch_currency(symbol)
+    return {"matrix": correlation_matrix(returns_by_ticker), "currencies": currencies}
 
 
 def fetch_portfolio_metrics(holdings: dict[str, float], period: str = "1y") -> dict:

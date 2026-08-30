@@ -311,7 +311,32 @@ class TestFetchCorrelation:
 
         result = risk.fetch_correlation(["aapl", "msft"])
 
-        assert sorted(result.columns) == ["AAPL", "MSFT"]
+        assert sorted(result["matrix"].columns) == ["AAPL", "MSFT"]
+
+    def test_returns_currency_per_ticker(self, mocker):
+        mock_ticker = mocker.patch("finance_mcp.risk.yf.Ticker")
+        mock_ticker.side_effect = _ticker_side_effect(
+            history_by_symbol={"AAPL": _price_df(30), "REY.MI": _price_df(30, step=0.8)},
+            fast_info_by_symbol={
+                "AAPL": SimpleNamespace(last_price=None, currency="USD"),
+                "REY.MI": SimpleNamespace(last_price=None, currency="EUR"),
+            },
+        )
+
+        result = risk.fetch_correlation(["aapl", "rey.mi"])
+
+        assert result["currencies"] == {"AAPL": "USD", "REY.MI": "EUR"}
+
+    def test_currency_lookup_failure_yields_none_not_error(self, mocker):
+        mock_ticker = mocker.patch("finance_mcp.risk.yf.Ticker")
+        mock_ticker.side_effect = _ticker_side_effect(
+            history_by_symbol={"AAPL": _price_df(30)},
+            fast_info_by_symbol={"AAPL": _RaisingFastInfo()},
+        )
+
+        result = risk.fetch_correlation(["aapl"])
+
+        assert result["currencies"] == {"AAPL": None}
 
     def test_bad_ticker_fails_whole_request(self, mocker):
         mock_ticker = mocker.patch("finance_mcp.risk.yf.Ticker")
@@ -341,9 +366,9 @@ class TestFetchCorrelation:
             history_by_symbol={"AAPL": aapl_df, "REY.MI": rey_df}
         )
 
-        matrix = risk.fetch_correlation(["AAPL", "REY.MI"])
+        result = risk.fetch_correlation(["AAPL", "REY.MI"])
 
-        assert not matrix.isna().any().any()
+        assert not result["matrix"].isna().any().any()
 
 
 class TestFetchPortfolioMetrics:
