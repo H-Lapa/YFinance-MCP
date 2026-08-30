@@ -115,11 +115,18 @@ def portfolio_metrics(
 
 
 def _fetch_price_series(ticker: str, period: str) -> pd.Series:
-    """Raw, full-resolution close-price series.
+    """Raw, full-resolution close-price series, indexed by calendar date.
 
     Deliberately separate from `market_data.fetch_history`, which rounds
     values and downsamples long ranges for display -- feeding that
     display-shaped data into these statistics would silently corrupt them.
+
+    yfinance timestamps each daily bar at midnight in *that ticker's own
+    exchange timezone* (e.g. America/New_York for AAPL, Europe/Rome for an
+    Italian listing) -- two tickers on different exchanges never share an
+    index value even for the same trading day, which silently produces NaN
+    when pandas aligns them for correlation/beta/portfolio math. Stripping
+    the timezone and normalizing to a bare date fixes that.
     """
     symbol = ticker.strip().upper()
     if not symbol:
@@ -130,6 +137,11 @@ def _fetch_price_series(ticker: str, period: str) -> pd.Series:
         raise MarketDataError(f"no historical data found for '{symbol}' (period={period})")
 
     prices = df["Close"]
+    index = prices.index
+    if index.tz is not None:
+        index = index.tz_localize(None)
+    prices = prices.set_axis(index.normalize())
+
     observations = len(prices) - 1
     if observations < MIN_RETURN_OBSERVATIONS:
         raise MarketDataError(
