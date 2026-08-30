@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pandas as pd
+
 
 def rows_to_markdown_table(rows: list[dict], columns: list[str]) -> str:
     """Render a list of dicts as a markdown table with a fixed column order.
@@ -52,4 +54,21 @@ def format_risk_metrics(result: dict) -> str:
         lines.append(f"Beta vs {result['benchmark'].upper()}: {beta_text}")
     lines.append("")
     lines.append(DISCLAIMER)
+    return "\n".join(lines)
+
+
+def format_correlation_matrix(matrix: pd.DataFrame) -> str:
+    """Render a `risk.fetch_correlation` result (a ticker x ticker DataFrame) as markdown."""
+    tickers = list(matrix.columns)
+    header = "| | " + " | ".join(tickers) + " |"
+    separator = "| --- | " + " | ".join("---" for _ in tickers) + " |"
+    lines = [
+        "Pairwise correlation of daily returns (simple returns, Pearson correlation):",
+        "",
+        header,
+        separator,
+    ]
+    for row_ticker in tickers:
+        cells = [f"{matrix.loc[row_ticker, col]:.2f}" for col in tickers]
+        lines.append(f"| {row_ticker} | " + " | ".join(cells) + " |")
     return "\n".join(lines)

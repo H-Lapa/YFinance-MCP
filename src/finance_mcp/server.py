@@ -5,7 +5,11 @@ from __future__ import annotations
 from mcp.server import MCPServer
 
 from finance_mcp import market_data, risk
-from finance_mcp.formatting import format_risk_metrics, rows_to_markdown_table
+from finance_mcp.formatting import (
+    format_correlation_matrix,
+    format_risk_metrics,
+    rows_to_markdown_table,
+)
 
 mcp = MCPServer("finance-mcp")
 
@@ -85,6 +89,17 @@ def get_risk_metrics(
         confidence=confidence,
     )
     return format_risk_metrics(result)
+
+
+@mcp.tool()
+def get_correlation(tickers: list[str], period: str = "1y") -> str:
+    """Get the pairwise correlation matrix of daily returns across multiple tickers.
+
+    Fails the whole request if any ticker has no data -- a silently dropped
+    ticker would change what the resulting matrix actually represents.
+    """
+    matrix = risk.fetch_correlation(tickers, period=period)
+    return format_correlation_matrix(matrix)
 
 
 @mcp.prompt()
