@@ -47,3 +47,11 @@ def sharpe_ratio(
     daily_risk_free = risk_free_rate_annual / trading_days
     excess_returns = returns - daily_risk_free
     return float(excess_returns.mean() / returns.std(ddof=1) * math.sqrt(trading_days))
+
+
+def historical_var(returns: pd.Series, confidence: float = 0.95) -> float:
+    """Historical (empirical) Value at Risk: the confidence-level percentile of past
+    daily returns. Negative = a loss. No distribution is assumed -- this reflects
+    only what actually happened in the sample, unlike a parametric/normal-distribution VaR.
+    """
+    return float(returns.quantile(1 - confidence))

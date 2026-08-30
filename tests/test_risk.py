@@ -84,3 +84,21 @@ class TestSharpeRatio:
 
         expected = statistics.mean(returns) / statistics.stdev(returns) * math.sqrt(252)
         assert result == pytest.approx(expected)
+
+
+class TestHistoricalVar:
+    def test_at_exact_quantile_point(self):
+        # 21 evenly-spaced values, chosen so the 5th percentile lands exactly on
+        # a data point (index 1) rather than needing interpolation to verify by hand.
+        returns = pd.Series([-0.10 + 0.01 * i for i in range(21)])
+
+        result = risk.historical_var(returns, confidence=0.95)
+
+        assert result == pytest.approx(-0.09)
+
+    def test_different_confidence_level(self):
+        returns = pd.Series([-0.10 + 0.01 * i for i in range(21)])
+
+        result = risk.historical_var(returns, confidence=0.90)
+
+        assert result == pytest.approx(-0.08)
