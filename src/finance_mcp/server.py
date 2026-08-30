@@ -8,6 +8,7 @@ from finance_mcp import market_data, risk
 from finance_mcp.formatting import (
     format_correlation_matrix,
     format_dividends,
+    format_financial_statement,
     format_portfolio_metrics,
     format_risk_metrics,
     rows_to_markdown_table,
@@ -76,6 +77,22 @@ def get_dividends(ticker: str, period: str = "5y") -> str:
     """
     result = market_data.fetch_dividends(ticker, period=period)
     return format_dividends(result)
+
+
+@mcp.tool()
+def get_financials(ticker: str, statement: str = "income", period: str = "annual") -> str:
+    """Get a financial statement for a single ticker.
+
+    statement: one of "income", "balance_sheet", "cashflow"
+    period: one of "annual", "quarterly"
+
+    Returns the full statement exactly as reported (every line item, every
+    available period) rather than a curated subset -- statement structures
+    vary too much across sectors (e.g. banks vs. industrials) for a fixed
+    "key metrics" list to be reliable.
+    """
+    df = market_data.fetch_financials(ticker, statement=statement, period=period)
+    return format_financial_statement(df, ticker.strip().upper(), statement, period)
 
 
 @mcp.tool()

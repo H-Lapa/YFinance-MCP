@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pandas as pd
+
 
 def rows_to_markdown_table(rows: list[dict], columns: list[str]) -> str:
     """Render a list of dicts as a markdown table with a fixed column order.
@@ -82,6 +84,20 @@ def format_dividends(result: dict) -> str:
     summary = f"Trailing 12-month total: {result['trailing_12mo_total']:.2f}"
     table = rows_to_markdown_table(result["rows"], columns=["date", "amount"])
     return f"{header}\n\n{summary}\n\n{table}"
+
+
+def format_financial_statement(df: pd.DataFrame, ticker: str, statement: str, period: str) -> str:
+    """Render a `market_data.fetch_financials` result: line items as rows,
+    periods as columns (most recent first, as yfinance already orders them),
+    blank cells for missing values, thousands-separated numbers."""
+    columns = [col.strftime("%Y-%m-%d") if hasattr(col, "strftime") else str(col) for col in df.columns]
+    header = "| Line Item | " + " | ".join(columns) + " |"
+    separator = "| --- | " + " | ".join("---" for _ in columns) + " |"
+    lines = [f"{ticker} {statement} statement ({period})", "", header, separator]
+    for line_item, row in df.iterrows():
+        cells = ["" if pd.isna(value) else f"{value:,.0f}" for value in row]
+        lines.append(f"| {line_item} | " + " | ".join(cells) + " |")
+    return "\n".join(lines)
 
 
 def format_correlation_matrix(result: dict) -> str:
