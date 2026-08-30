@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-Finance-MCP is a Python MCP (Model Context Protocol) server that gives an LLM client (Claude Desktop, Claude Code) live market-data tools backed by `yfinance` — quotes, historical prices, company fundamentals — instead of relying on the model's stale training-data knowledge of prices and financials. v1 is intentionally scoped to market-data lookups only; portfolio-level risk analytics (volatility, Sharpe, VaR, benchmark comparison) are a deferred v2, not part of this codebase yet.
+Finance-MCP is a Python MCP (Model Context Protocol) server that gives an LLM client (Claude Desktop, Claude Code) live market-data tools backed by `yfinance` — quotes, historical prices, company fundamentals — instead of relying on the model's stale training-data knowledge of prices and financials. Current scope is market-data lookups only; risk/portfolio analytics (volatility, Sharpe, VaR, correlation, beta, portfolio aggregation) are planned as individual follow-up tools, each added as its own small, self-contained change — see the Roadmap in README.md.
 
 ## Commands
 

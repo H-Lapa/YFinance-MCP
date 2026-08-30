@@ -2,7 +2,7 @@
 
 A Python [MCP](https://modelcontextprotocol.io) server that gives an LLM client (Claude Desktop, Claude Code) live stock market data via [`yfinance`](https://github.com/ranaroussi/yfinance) — real prices and fundamentals instead of the model's stale training-data knowledge.
 
-**v1 scope:** market data lookups only. Portfolio-level risk analytics (volatility, Sharpe ratio, VaR, benchmark comparison) are a planned v2, not implemented yet.
+**Current scope:** market data lookups only. Risk/portfolio analytics tools are planned but not implemented yet — see Roadmap below.
 
 ## Tools
 
@@ -137,8 +137,14 @@ tests/
 
 See [CLAUDE.md](CLAUDE.md) for the design constraints (stateless, context-size discipline, yfinance error handling) behind this structure.
 
-## Roadmap (v2)
+## Roadmap
 
-- Single-asset risk metrics: volatility, max drawdown, Sharpe/Sortino, VaR
-- Portfolio-level aggregation: given a set of holdings, compute combined return, volatility, correlation matrix
-- Benchmark comparison: alpha, beta, tracking error vs. an index
+Each item below is scoped as one small, independent tool addition (own function, own test, own commit) rather than a bundled release:
+
+- `get_volatility(ticker, period)` — annualized volatility from daily returns
+- `get_max_drawdown(ticker, period)` — largest peak-to-trough decline over the period
+- `get_correlation(tickers, period)` — pairwise correlation matrix across multiple tickers
+- `get_beta(ticker, benchmark, period)` — beta of a ticker vs. a benchmark index (e.g. SPY)
+- `get_sharpe_ratio(ticker, period, risk_free_rate)` — risk-adjusted return
+- `get_value_at_risk(ticker, period, confidence)` — historical VaR
+- `get_portfolio_metrics(holdings, period)` — weighted return/volatility for a set of holdings (builds on the single-asset metrics above)
