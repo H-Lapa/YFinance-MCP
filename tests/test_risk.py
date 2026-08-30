@@ -1,10 +1,42 @@
 import math
 import statistics
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
 
 from finance_mcp import risk
+from finance_mcp.market_data import MarketDataError
+
+
+def _price_df(n_rows: int, start: float = 100.0, step: float = 1.0) -> pd.DataFrame:
+    dates = pd.date_range("2024-01-01", periods=n_rows, freq="D")
+    closes = [start + step * i for i in range(n_rows)]
+    return pd.DataFrame({"Close": closes}, index=dates)
+
+
+class _RaisingFastInfo:
+    """Stands in for yfinance's fast_info when an attribute access raises,
+    mirroring the KeyError-from-deep-inside-yfinance failure mode seen in
+    practice for market_data.fetch_quotes."""
+
+    @property
+    def last_price(self):
+        raise RuntimeError("boom")
+
+
+def _ticker_side_effect(history_by_symbol=None, fast_info_by_symbol=None):
+    history_by_symbol = history_by_symbol or {}
+    fast_info_by_symbol = fast_info_by_symbol or {}
+
+    def _side_effect(symbol):
+        mock = MagicMock()
+        mock.history.return_value = history_by_symbol.get(symbol, pd.DataFrame())
+        mock.fast_info = fast_info_by_symbol.get(symbol, SimpleNamespace(last_price=None))
+        return mock
+
+    return _side_effect
 
 
 class TestDailyReturns:
@@ -179,3 +211,114 @@ class TestPortfolioMetrics:
             pct_result["annualized_volatility"]
         )
         assert dollar_result["weights"] == pytest.approx(pct_result["weights"])
+
+
+class TestFetchPriceSeries:
+    def test_raises_on_empty_history(self, mocker):
+        mock_ticker = mocker.patch("finance_mcp.risk.yf.Ticker")
+        mock_ticker.return_value.history.return_value = pd.DataFrame()
+
+        with pytest.raises(MarketDataError):
+            risk._fetch_price_series("BOGUS", "1y")
+
+    def test_raises_below_minimum_sample_size(self, mocker):
+        mock_ticker = mocker.patch("finance_mcp.risk.yf.Ticker")
+        mock_ticker.return_value.history.return_value = _price_df(10)
+
+        with pytest.raises(MarketDataError, match="at least"):
+            risk._fetch_price_series("AAPL", "5d")
+
+    def test_happy_path_returns_close_series(self, mocker):
+        mock_ticker = mocker.patch("finance_mcp.risk.yf.Ticker")
+        mock_ticker.return_value.history.return_value = _price_df(30)
+
+        result = risk._fetch_price_series("aapl", "1y")
+
+        assert len(result) == 30
+
+
+class TestFetchRiskMetrics:
+    def test_happy_path_with_live_risk_free_rate(self, mocker):
+        mock_ticker = mocker.patch("finance_mcp.risk.yf.Ticker")
+        mock_ticker.side_effect = _ticker_side_effect(
+            history_by_symbol={"AAPL": _price_df(30)},
+            fast_info_by_symbol={"^IRX": SimpleNamespace(last_price=4.5)},
+        )
+
+        result = risk.fetch_risk_metrics("aapl")
+
+        assert result["ticker"] == "AAPL"
+        assert result["risk_free_rate"] == pytest.approx(0.045)
+        assert result["risk_free_rate_source"] == "live, ^IRX"
+        assert result["beta"] is None
+
+    def test_falls_back_when_live_rate_fetch_fails(self, mocker):
+        mock_ticker = mocker.patch("finance_mcp.risk.yf.Ticker")
+        mock_ticker.side_effect = _ticker_side_effect(
+            history_by_symbol={"AAPL": _price_df(30)},
+            fast_info_by_symbol={"^IRX": _RaisingFastInfo()},
+        )
+
+        result = risk.fetch_risk_metrics("aapl")
+
+        assert result["risk_free_rate"] == pytest.approx(risk.DEFAULT_RISK_FREE_RATE)
+        assert result["risk_free_rate_source"] == "fallback -- live fetch failed"
+
+    def test_explicit_risk_free_rate_skips_live_fetch(self, mocker):
+        mock_ticker = mocker.patch("finance_mcp.risk.yf.Ticker")
+        mock_ticker.side_effect = _ticker_side_effect(history_by_symbol={"AAPL": _price_df(30)})
+
+        result = risk.fetch_risk_metrics("aapl", risk_free_rate=0.03)
+
+        assert result["risk_free_rate"] == pytest.approx(0.03)
+        assert result["risk_free_rate_source"] == "explicit override"
+
+    def test_with_benchmark_computes_beta(self, mocker):
+        mock_ticker = mocker.patch("finance_mcp.risk.yf.Ticker")
+        mock_ticker.side_effect = _ticker_side_effect(
+            history_by_symbol={"AAPL": _price_df(30), "SPY": _price_df(30, step=0.5)},
+            fast_info_by_symbol={"^IRX": SimpleNamespace(last_price=4.0)},
+        )
+
+        result = risk.fetch_risk_metrics("aapl", benchmark="spy")
+
+        assert result["benchmark"] == "spy"
+        assert result["beta"] is not None
+
+
+class TestFetchCorrelation:
+    def test_happy_path(self, mocker):
+        mock_ticker = mocker.patch("finance_mcp.risk.yf.Ticker")
+        mock_ticker.side_effect = _ticker_side_effect(
+            history_by_symbol={"AAPL": _price_df(30), "MSFT": _price_df(30, step=0.8)}
+        )
+
+        result = risk.fetch_correlation(["aapl", "msft"])
+
+        assert sorted(result.columns) == ["AAPL", "MSFT"]
+
+    def test_bad_ticker_fails_whole_request(self, mocker):
+        mock_ticker = mocker.patch("finance_mcp.risk.yf.Ticker")
+        mock_ticker.side_effect = _ticker_side_effect(history_by_symbol={"AAPL": _price_df(30)})
+
+        with pytest.raises(MarketDataError, match="MSFT"):
+            risk.fetch_correlation(["aapl", "msft"])
+
+
+class TestFetchPortfolioMetrics:
+    def test_happy_path(self, mocker):
+        mock_ticker = mocker.patch("finance_mcp.risk.yf.Ticker")
+        mock_ticker.side_effect = _ticker_side_effect(
+            history_by_symbol={"AAPL": _price_df(30), "MSFT": _price_df(30, step=0.8)}
+        )
+
+        result = risk.fetch_portfolio_metrics({"aapl": 0.5, "msft": 0.5})
+
+        assert set(result["weights"].keys()) == {"AAPL", "MSFT"}
+
+    def test_bad_ticker_fails_whole_request(self, mocker):
+        mock_ticker = mocker.patch("finance_mcp.risk.yf.Ticker")
+        mock_ticker.side_effect = _ticker_side_effect(history_by_symbol={"AAPL": _price_df(30)})
+
+        with pytest.raises(MarketDataError, match="MSFT"):
+            risk.fetch_portfolio_metrics({"aapl": 0.5, "msft": 0.5})

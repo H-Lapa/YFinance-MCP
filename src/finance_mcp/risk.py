@@ -15,8 +15,14 @@ from __future__ import annotations
 import math
 
 import pandas as pd
+import yfinance as yf
+
+from finance_mcp.market_data import MarketDataError
 
 TRADING_DAYS_PER_YEAR = 252
+MIN_RETURN_OBSERVATIONS = 20
+DEFAULT_RISK_FREE_RATE = 0.04
+RISK_FREE_RATE_TICKER = "^IRX"
 
 
 def daily_returns(prices: pd.Series) -> pd.Series:
@@ -106,3 +112,110 @@ def portfolio_metrics(
         "annualized_return": annualized_return,
         "annualized_volatility": annualized_volatility,
     }
+
+
+def _fetch_price_series(ticker: str, period: str) -> pd.Series:
+    """Raw, full-resolution close-price series.
+
+    Deliberately separate from `market_data.fetch_history`, which rounds
+    values and downsamples long ranges for display -- feeding that
+    display-shaped data into these statistics would silently corrupt them.
+    """
+    symbol = ticker.strip().upper()
+    if not symbol:
+        raise MarketDataError("ticker must not be empty")
+
+    df = yf.Ticker(symbol).history(period=period)
+    if df.empty:
+        raise MarketDataError(f"no historical data found for '{symbol}' (period={period})")
+
+    prices = df["Close"]
+    observations = len(prices) - 1
+    if observations < MIN_RETURN_OBSERVATIONS:
+        raise MarketDataError(
+            f"'{symbol}' only has {observations} daily return observations over "
+            f"period={period} -- need at least {MIN_RETURN_OBSERVATIONS} for these "
+            "statistics to be meaningful; use a longer period"
+        )
+    return prices
+
+
+def _resolve_risk_free_rate(risk_free_rate: float | None) -> tuple[float, str]:
+    """Resolve the annual risk-free rate: explicit override > live fetch > fallback.
+
+    A fallback is always labeled in the returned source string so it's never
+    silently mistaken for a live rate.
+    """
+    if risk_free_rate is not None:
+        return risk_free_rate, "explicit override"
+
+    try:
+        rate_pct = yf.Ticker(RISK_FREE_RATE_TICKER).fast_info.last_price
+    except Exception:  # noqa: BLE001 -- same inconsistent yfinance failure boundary as market_data.py
+        rate_pct = None
+
+    if rate_pct is not None:
+        return rate_pct / 100, f"live, {RISK_FREE_RATE_TICKER}"
+    return DEFAULT_RISK_FREE_RATE, "fallback -- live fetch failed"
+
+
+def fetch_risk_metrics(
+    ticker: str,
+    period: str = "1y",
+    benchmark: str | None = None,
+    risk_free_rate: float | None = None,
+    confidence: float = 0.95,
+) -> dict:
+    """Fetch a ticker's price history and compute its full risk profile."""
+    prices = _fetch_price_series(ticker, period)
+    returns = daily_returns(prices)
+    resolved_rate, rate_source = _resolve_risk_free_rate(risk_free_rate)
+
+    result = {
+        "ticker": ticker.strip().upper(),
+        "period": period,
+        "volatility": volatility(returns),
+        "max_drawdown": max_drawdown(prices),
+        "sharpe_ratio": sharpe_ratio(returns, resolved_rate),
+        "risk_free_rate": resolved_rate,
+        "risk_free_rate_source": rate_source,
+        "var": historical_var(returns, confidence),
+        "confidence": confidence,
+        "benchmark": benchmark,
+        "beta": None,
+    }
+
+    if benchmark:
+        benchmark_returns = daily_returns(_fetch_price_series(benchmark, period))
+        result["beta"] = beta(returns, benchmark_returns)
+
+    return result
+
+
+def fetch_correlation(tickers: list[str], period: str = "1y") -> pd.DataFrame:
+    """Fetch price history for each ticker and compute their return correlation matrix.
+
+    Any ticker with no data aborts the whole request (naming that ticker) --
+    silently dropping a constituent would change what the resulting matrix
+    actually represents.
+    """
+    returns_by_ticker = {}
+    for raw in tickers:
+        symbol = raw.strip().upper()
+        returns_by_ticker[symbol] = daily_returns(_fetch_price_series(symbol, period))
+    return correlation_matrix(returns_by_ticker)
+
+
+def fetch_portfolio_metrics(holdings: dict[str, float], period: str = "1y") -> dict:
+    """Fetch price history for each holding and compute weighted portfolio return/volatility.
+
+    Same fail-whole-request rule as `fetch_correlation`, for the same reason:
+    a silently-dropped holding would change the portfolio being measured.
+    """
+    returns_by_ticker = {}
+    for raw_ticker in holdings:
+        symbol = raw_ticker.strip().upper()
+        returns_by_ticker[symbol] = daily_returns(_fetch_price_series(symbol, period))
+
+    normalized_holdings = {ticker.strip().upper(): weight for ticker, weight in holdings.items()}
+    return portfolio_metrics(normalized_holdings, returns_by_ticker)
