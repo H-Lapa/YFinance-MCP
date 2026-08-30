@@ -236,6 +236,22 @@ class TestFetchPriceSeries:
 
         assert len(result) == 30
 
+    def test_strips_timezone_and_normalizes_to_date(self, mocker):
+        # Regression test for a bug found in manual testing: yfinance
+        # timestamps daily bars at midnight in each exchange's own timezone,
+        # so e.g. a US ticker and a Milan-listed ticker never share an index
+        # value even for the same trading day -- silently producing NaN when
+        # the two series are later aligned for correlation/beta.
+        dates = pd.date_range("2024-01-02", periods=25, freq="B", tz="America/New_York")
+        df = pd.DataFrame({"Close": [100.0 + i for i in range(25)]}, index=dates)
+        mock_ticker = mocker.patch("finance_mcp.risk.yf.Ticker")
+        mock_ticker.return_value.history.return_value = df
+
+        result = risk._fetch_price_series("AAPL", "1y")
+
+        assert result.index.tz is None
+        assert all(ts.time() == pd.Timestamp("00:00:00").time() for ts in result.index)
+
 
 class TestFetchRiskMetrics:
     def test_happy_path_with_live_risk_free_rate(self, mocker):
@@ -303,6 +319,31 @@ class TestFetchCorrelation:
 
         with pytest.raises(MarketDataError, match="MSFT"):
             risk.fetch_correlation(["aapl", "msft"])
+
+    def test_aligns_across_different_exchange_timezones(self, mocker):
+        # Regression test for the NaN-correlation bug found testing AAPL vs.
+        # an Italian ticker (REY.MI) live: before the fix in
+        # _fetch_price_series, two tickers on different exchange timezones
+        # produced an all-NaN matrix because pandas aligns Series by exact
+        # index value, and midnight-America/New_York != midnight-Europe/Rome
+        # even on the same calendar date.
+        dates = pd.date_range("2024-01-02", periods=25, freq="B")
+        aapl_df = pd.DataFrame(
+            {"Close": [100.0 + i for i in range(25)]},
+            index=dates.tz_localize("America/New_York"),
+        )
+        rey_df = pd.DataFrame(
+            {"Close": [50.0 + 2 * i for i in range(25)]},
+            index=dates.tz_localize("Europe/Rome"),
+        )
+        mock_ticker = mocker.patch("finance_mcp.risk.yf.Ticker")
+        mock_ticker.side_effect = _ticker_side_effect(
+            history_by_symbol={"AAPL": aapl_df, "REY.MI": rey_df}
+        )
+
+        matrix = risk.fetch_correlation(["AAPL", "REY.MI"])
+
+        assert not matrix.isna().any().any()
 
 
 class TestFetchPortfolioMetrics:
