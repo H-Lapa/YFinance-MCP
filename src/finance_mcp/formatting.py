@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pandas as pd
-
 
 def rows_to_markdown_table(rows: list[dict], columns: list[str]) -> str:
     """Render a list of dicts as a markdown table with a fixed column order.
@@ -27,6 +25,25 @@ def rows_to_markdown_table(rows: list[dict], columns: list[str]) -> str:
 
 
 DISCLAIMER = "Not financial advice -- past performance does not guarantee future results."
+
+
+def _currency_mismatch_note(currencies: dict[str, str | None]) -> str | None:
+    """Build a warning line when `currencies` (ticker -> currency|None) spans
+    more than one known currency, or None if they all match / are unknown.
+
+    These tools combine *local-currency* returns -- mixing USD and EUR
+    returns doesn't account for the FX exposure a real investor would also
+    have, so a mismatch is surfaced explicitly rather than left implicit.
+    """
+    known = {currency for currency in currencies.values() if currency}
+    if len(known) <= 1:
+        return None
+
+    listing = ", ".join(f"{ticker}: {currency or 'unknown'}" for ticker, currency in currencies.items())
+    return (
+        f"Note: holdings span multiple currencies ({listing}) -- these are local-currency "
+        "returns and do not include FX exposure between them."
+    )
 
 
 def format_risk_metrics(result: dict) -> str:
@@ -57,8 +74,9 @@ def format_risk_metrics(result: dict) -> str:
     return "\n".join(lines)
 
 
-def format_correlation_matrix(matrix: pd.DataFrame) -> str:
-    """Render a `risk.fetch_correlation` result (a ticker x ticker DataFrame) as markdown."""
+def format_correlation_matrix(result: dict) -> str:
+    """Render a `risk.fetch_correlation` result: {"matrix": DataFrame, "currencies": dict}."""
+    matrix = result["matrix"]
     tickers = list(matrix.columns)
     header = "| | " + " | ".join(tickers) + " |"
     separator = "| --- | " + " | ".join("---" for _ in tickers) + " |"
@@ -71,6 +89,11 @@ def format_correlation_matrix(matrix: pd.DataFrame) -> str:
     for row_ticker in tickers:
         cells = [f"{matrix.loc[row_ticker, col]:.2f}" for col in tickers]
         lines.append(f"| {row_ticker} | " + " | ".join(cells) + " |")
+
+    note = _currency_mismatch_note(result["currencies"])
+    if note:
+        lines.append("")
+        lines.append(note)
     return "\n".join(lines)
 
 
@@ -79,19 +102,24 @@ def format_portfolio_metrics(result: dict) -> str:
     weights_lines = "\n".join(
         f"  {ticker}: {weight:.1%}" for ticker, weight in result["weights"].items()
     )
-    return "\n".join(
-        [
-            "# Portfolio Metrics",
-            "",
-            "Weights (normalized to sum to 100%):",
-            weights_lines,
-            "",
-            f"Annualized return (mean daily return x 252): {result['annualized_return'] * 100:.2f}%",
-            (
-                f"Annualized volatility (covariance-based, 252 trading days): "
-                f"{result['annualized_volatility'] * 100:.2f}%"
-            ),
-            "",
-            DISCLAIMER,
-        ]
-    )
+    lines = [
+        "# Portfolio Metrics",
+        "",
+        "Weights (normalized to sum to 100%):",
+        weights_lines,
+        "",
+        f"Annualized return (mean daily return x 252): {result['annualized_return'] * 100:.2f}%",
+        (
+            f"Annualized volatility (covariance-based, 252 trading days): "
+            f"{result['annualized_volatility'] * 100:.2f}%"
+        ),
+    ]
+
+    note = _currency_mismatch_note(result["currencies"])
+    if note:
+        lines.append("")
+        lines.append(note)
+
+    lines.append("")
+    lines.append(DISCLAIMER)
+    return "\n".join(lines)

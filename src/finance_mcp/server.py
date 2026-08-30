@@ -99,8 +99,8 @@ def get_correlation(tickers: list[str], period: str = "1y") -> str:
     Fails the whole request if any ticker has no data -- a silently dropped
     ticker would change what the resulting matrix actually represents.
     """
-    matrix = risk.fetch_correlation(tickers, period=period)
-    return format_correlation_matrix(matrix)
+    result = risk.fetch_correlation(tickers, period=period)
+    return format_correlation_matrix(result)
 
 
 @mcp.tool()
