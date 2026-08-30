@@ -7,6 +7,7 @@ from mcp.server import MCPServer
 from finance_mcp import market_data, risk
 from finance_mcp.formatting import (
     format_correlation_matrix,
+    format_dividends,
     format_portfolio_metrics,
     format_risk_metrics,
     rows_to_markdown_table,
@@ -64,6 +65,17 @@ def search_ticker(query: str) -> str:
     """Search for a ticker symbol by company name, e.g. 'Apple' -> AAPL."""
     matches = market_data.search_tickers(query)
     return rows_to_markdown_table(matches, columns=["ticker", "name", "exchange", "type"])
+
+
+@mcp.tool()
+def get_dividends(ticker: str, period: str = "5y") -> str:
+    """Get dividend payment history for a single ticker, plus its trailing
+    12-month total. period: one of 1y, 2y, 5y, 10y, max.
+
+    Raises a clear error if the ticker doesn't pay dividends.
+    """
+    result = market_data.fetch_dividends(ticker, period=period)
+    return format_dividends(result)
 
 
 @mcp.tool()

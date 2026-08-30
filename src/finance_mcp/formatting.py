@@ -74,6 +74,16 @@ def format_risk_metrics(result: dict) -> str:
     return "\n".join(lines)
 
 
+def format_dividends(result: dict) -> str:
+    """Render a `market_data.fetch_dividends` result."""
+    header = f"{result['ticker']} dividend history (period={result['period']})"
+    if result["note"]:
+        header += f"\n{result['note']}"
+    summary = f"Trailing 12-month total: {result['trailing_12mo_total']:.2f}"
+    table = rows_to_markdown_table(result["rows"], columns=["date", "amount"])
+    return f"{header}\n\n{summary}\n\n{table}"
+
+
 def format_correlation_matrix(result: dict) -> str:
     """Render a `risk.fetch_correlation` result: {"matrix": DataFrame, "currencies": dict}."""
     matrix = result["matrix"]
