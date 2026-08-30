@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "finance-mcp": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "D:\\Programming Projects\\Finance-MCP",
+        "run",
+        "finance-mcp"
+      ]
+    }
+  }
+}
