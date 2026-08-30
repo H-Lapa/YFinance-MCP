@@ -2,7 +2,7 @@
 
 A Python [MCP](https://modelcontextprotocol.io) server that gives an LLM client (Claude Desktop, Claude Code) live stock market data via [`yfinance`](https://github.com/ranaroussi/yfinance) — real prices and fundamentals instead of the model's stale training-data knowledge.
 
-**Current scope:** market data lookups only. Risk/portfolio analytics tools are planned but not implemented yet — see Roadmap below.
+Market data tools fetch and format what yfinance returns. Risk/portfolio tools go a step further: yfinance only gives raw prices, so volatility, drawdown, Sharpe, VaR, correlation, and portfolio stats are all computed in this codebase — every methodology assumption behind those numbers is stated inline in the tool's response (and summarized below), not left implicit.
 
 ## Tools
 
@@ -12,6 +12,18 @@ A Python [MCP](https://modelcontextprotocol.io) server that gives an LLM client 
 | `get_historical_prices(ticker, period, interval)` | OHLCV history for a ticker (auto-downsampled if the range is large) |
 | `get_company_info(ticker)` | Sector, industry, business summary, P/E, dividend yield, beta |
 | `search_ticker(query)` | Resolve a company name to its ticker symbol(s) |
+| `get_risk_metrics(ticker, period, benchmark=None, risk_free_rate=None, confidence=0.95)` | Volatility, max drawdown, Sharpe ratio, historical VaR; beta vs. `benchmark` if given |
+| `get_correlation(tickers, period)` | Pairwise correlation matrix of daily returns across tickers |
+| `get_portfolio_metrics(holdings, period)` | Weighted annualized return/volatility for a set of holdings (`{ticker: weight}`, auto-normalized) |
+
+### Methodology behind the risk/portfolio tools
+
+- **Returns**: simple (arithmetic) daily returns throughout, not log returns.
+- **Annualization**: 252 trading days/year; volatility and Sharpe use sample std (`ddof=1`).
+- **VaR**: historical simulation (empirical percentile of past returns), not parametric — no normal-distribution assumption.
+- **Risk-free rate**: live-fetched from `^IRX` (13-week T-bill) when not explicitly passed; falls back to a documented constant if the live fetch fails. The tool response always states which source was used.
+- **Minimum sample size**: `get_risk_metrics` requires at least 20 daily return observations in the chosen period; shorter periods raise a clear error instead of returning a statistically meaningless number.
+- **Bad ticker in `get_correlation` / `get_portfolio_metrics`**: fails the whole request, naming the ticker, rather than silently dropping it and changing what's being measured.
 
 ## Prompts
 
@@ -94,7 +106,7 @@ uv run mcp install src/finance_mcp/server.py --name finance-mcp
 }
 ```
 
-Restart Claude Desktop afterward. The four tools and `analyze_stock` prompt should appear under the 🔌 icon in a new chat.
+Restart Claude Desktop afterward. The tools and `analyze_stock` prompt should appear under the 🔌 icon in a new chat.
 
 ## Connect to Claude Code
 
@@ -129,22 +141,12 @@ Verify with `/mcp` inside Claude Code — `finance-mcp` should show as connected
 ```
 src/finance_mcp/
 ├── server.py       # MCPServer instance, tool/prompt registration only
-├── market_data.py  # yfinance calls + data shaping (MCP-agnostic, unit tested)
+├── market_data.py  # yfinance calls + data shaping for market-data tools (MCP-agnostic, unit tested)
+├── risk.py         # risk/portfolio math (pure functions) + its own yfinance fetch layer
 └── formatting.py   # dict/DataFrame -> compact markdown
 tests/
-└── test_market_data.py
+├── test_market_data.py
+└── test_risk.py
 ```
 
-See [CLAUDE.md](CLAUDE.md) for the design constraints (stateless, context-size discipline, yfinance error handling) behind this structure.
-
-## Roadmap
-
-Each item below is scoped as one small, independent tool addition (own function, own test, own commit) rather than a bundled release:
-
-- `get_volatility(ticker, period)` — annualized volatility from daily returns
-- `get_max_drawdown(ticker, period)` — largest peak-to-trough decline over the period
-- `get_correlation(tickers, period)` — pairwise correlation matrix across multiple tickers
-- `get_beta(ticker, benchmark, period)` — beta of a ticker vs. a benchmark index (e.g. SPY)
-- `get_sharpe_ratio(ticker, period, risk_free_rate)` — risk-adjusted return
-- `get_value_at_risk(ticker, period, confidence)` — historical VaR
-- `get_portfolio_metrics(holdings, period)` — weighted return/volatility for a set of holdings (builds on the single-asset metrics above)
+See [CLAUDE.md](CLAUDE.md) for the design constraints (stateless, context-size discipline, yfinance error handling, why `risk.py` doesn't reuse `market_data.fetch_history`) behind this structure.
