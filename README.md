@@ -181,4 +181,3 @@ tests/
 └── test_formatting.py
 ```
 
-See [CLAUDE.md](CLAUDE.md) for the design constraints (stateless, context-size discipline, yfinance error handling, timezone/currency gotchas) behind this structure.
