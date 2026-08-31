@@ -2,7 +2,10 @@
 
 yfinance-mcp is a Python [MCP](https://modelcontextprotocol.io) server that gives any MCP-compatible LLM client live stock market data and risk analytics, sources from [`yfinance`](https://github.com/ranaroussi/yfinance). This provides real prices and financials instead of a model's stale training data, and computed risk statistics instead of the model hand-deriving them itself.
 
-The server offers two kinds of tools: **market data** tools that fetch and format what yfinance returns directly (quotes, prices, company info, dividends, financial statements), and **risk and portfolio analytics** tools that go further and compute volatility, drawdown, Sharpe ratio, VaR, correlation, and portfolio statistics from raw price history, since none of that is a plain API field.
+The server offers two kinds of tools:
+
+- **Market data.** These tools fetch and format data directly from yfinance. Examples: quotes, prices, company info, dividends, and financial statements.
+- **Risk and portfolio analytics.** yfinance supplies only raw prices. This server computes volatility, drawdown, Sharpe ratio, VaR, correlation, and portfolio statistics from that data.
 
 The server is also stateless: every tool call carries its full input (tickers, weights, period, and so on) rather than relying on a persisted portfolio or local database.
 
