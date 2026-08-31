@@ -1,27 +1,27 @@
-# Finance-MCP
+# yfinance-mcp
 
-A Python [MCP](https://modelcontextprotocol.io) server that gives an LLM client (Claude Desktop, Claude Code) live stock market data and risk analytics via [`yfinance`](https://github.com/ranaroussi/yfinance) — real prices and financials instead of the model's stale training-data knowledge, and computed risk statistics instead of the model hand-deriving them.
+yfinance-mcp is a Python [MCP](https://modelcontextprotocol.io) server that gives any MCP-compatible LLM client live stock market data and risk analytics, sources from [`yfinance`](https://github.com/ranaroussi/yfinance). This provides real prices and financials instead of a model's stale training data, and computed risk statistics instead of the model hand-deriving them itself.
 
-**Contents:** [Overview](#overview) · [Quick Start](#quick-start) · [Tools](#tools) · [Prompts](#prompts) · [Design Decisions](#design-decisions) · [Development](#development) · [Connect to Claude](#connect-to-claude) · [Project Layout](#project-layout)
+The server offers two kinds of tools: **market data** tools that fetch and format what yfinance returns directly (quotes, prices, company info, dividends, financial statements), and **risk and portfolio analytics** tools that go further and compute volatility, drawdown, Sharpe ratio, VaR, correlation, and portfolio statistics from raw price history, since none of that is a plain API field.
 
-## Overview
+The server is also stateless: every tool call carries its full input (tickers, weights, period, and so on) rather than relying on a persisted portfolio or local database.
 
-Finance-MCP is a yfinance-native data and statistics server, not a general-purpose fintech platform — it grows by covering more yfinance-backed data (market data, dividends, financial statements) and more derived analytics (risk, portfolio), not by branching into unrelated problem spaces.
+> **Note:** This project was previously named Finance-MCP. The installed command and the Python package still use the old name, `finance-mcp`.
 
-Two kinds of tools:
-
-- **Market data** — fetches and formats what yfinance returns directly (quotes, prices, company info, dividends, financial statements).
-- **Risk & portfolio analytics** — yfinance only gives raw prices, so volatility, drawdown, Sharpe, VaR, correlation, and portfolio stats are all *computed* in this codebase. Every methodology assumption behind those numbers is stated inline in the tool's response and summarized in [Design Decisions](#design-decisions) below — nothing is left implicit.
-
-The server is **stateless**: every tool takes its full input (tickers, weights, period, etc.) on each call. There's no persisted portfolio and no local database — that's a deliberate scope decision, not a missing feature.
+**Contents:** [Quick Start](#quick-start) · [Tools](#tools) · [Prompts](#prompts) · [Design Decisions](#design-decisions) · [Development](#development)
 
 ## Quick Start
 
 ```bash
 uv sync
+uv run finance-mcp
 ```
 
-That installs everything (see [Requirements](#requirements) for prerequisites). From there, jump to [Connect to Claude](#connect-to-claude) to wire the server into Claude Desktop or Claude Code, or to [MCP Inspector](#mcp-inspector-manual-testing) to try it out without connecting to Claude at all.
+`uv sync` installs every dependency. See [Requirements](#requirements) for prerequisites.
+
+`uv run finance-mcp` starts the server. It uses stdio transport. Point any MCP-compatible client at this command.
+
+To try the tools without a client, see [MCP Inspector](#mcp-inspector-manual-testing).
 
 ## Tools
 
@@ -45,129 +45,20 @@ That installs everything (see [Requirements](#requirements) for prerequisites). 
 
 ## Design Decisions
 
-Assumptions behind the risk/portfolio numbers, and a couple of data-shape choices worth knowing before you rely on them:
+These are the assumptions behind the risk and portfolio numbers. Know these choices before you rely on the numbers.
 
-- **Returns**: simple (arithmetic) daily returns throughout, not log returns.
-- **Annualization**: 252 trading days/year; volatility and Sharpe use sample std (`ddof=1`).
-- **VaR**: historical simulation (empirical percentile of past returns), not parametric — no normal-distribution assumption.
-- **Risk-free rate**: live-fetched from `^IRX` (13-week T-bill) when not explicitly passed; falls back to a documented constant if the live fetch fails. The tool response always states which source was used.
-- **Minimum sample size**: `get_risk_metrics` requires at least 20 daily return observations in the chosen period; shorter periods raise a clear error instead of returning a statistically meaningless number.
-- **Bad ticker in `get_correlation` / `get_portfolio_metrics`**: fails the whole request, naming the ticker, rather than silently dropping it and changing what's being measured.
-- **Currency mismatch**: `get_correlation` and `get_portfolio_metrics` detect when tickers are denominated in different currencies (e.g. AAPL/USD vs. a Milan-listed REY.MI/EUR) and add an explicit note — these are local-currency returns and don't include FX exposure between currencies. No conversion is performed; this is a deliberate warn-don't-convert choice, not a TODO.
-- **Financial statements are full pass-through**, not a curated "key metrics" subset — a bank's balance sheet diverges structurally from an industrial's past the first few rows, so a fixed line-item list would silently misrepresent whole sectors.
+- **Returns.** The server uses simple daily returns. It does not use log returns.
+- **Annualization.** The server assumes 252 trading days per year. Volatility and the Sharpe ratio use sample standard deviation (`ddof=1`).
+- **VaR.** The server uses historical simulation. It takes the empirical percentile of past returns. It does not assume a normal distribution.
+- **Risk-free rate.** By default, the server fetches the live 13-week T-bill rate (`^IRX`). You can override this rate in the tool call. If the live fetch fails, the server uses a documented constant instead. Each tool response states which source it used.
+- **Minimum sample size.** `get_risk_metrics` needs at least 20 daily return observations in the chosen period. A shorter period raises a clear error. The tool does not return a statistically meaningless number.
+- **Bad ticker in `get_correlation` or `get_portfolio_metrics`.** The tool fails the whole request and names the bad ticker. It does not silently drop the ticker, because that would change what the numbers measure.
+- **Currency mismatch.** `get_correlation` and `get_portfolio_metrics` detect when tickers use different currencies. For example, AAPL trades in USD and a Milan-listed REY.MI trades in EUR. When this happens, the tool adds a note to the response. The returns stay in local currency. They do not include FX exposure between currencies. The server does not convert currencies. This is a deliberate choice, not a missing feature.
+- **Financial statements.** `get_financials` returns the full statement. It does not return a curated list of key metrics. A bank's balance sheet and an industrial company's balance sheet diverge past the first few rows. A fixed line-item list would misrepresent some sectors.
 
 ## Development
 
-### Requirements
-
-- Python ≥3.10
-- [`uv`](https://docs.astral.sh/uv/) — install with `pip install uv` if you don't have it
-- Node.js ≥22.19.0/`npx` on PATH — only needed for the MCP Inspector (below), not for running the server itself
-
-### Install
-
-```bash
-uv sync
-```
-
-Creates `.venv/` and installs runtime + dev dependencies (`mcp[cli]`, `yfinance`, `pandas`, `pytest`, `ruff`).
-
-### Run tests and lint
-
-```bash
-uv run pytest          # full suite
-uv run ruff check .    # lint
-```
-
-`yfinance` calls are mocked in the test suite, so it runs offline. There's no automated live-network test — use the [MCP Inspector](#mcp-inspector-manual-testing) or the snippet below for a real-data smoke check:
-
-```bash
-uv run python -c "from finance_mcp import server; print(server.get_quote(['AAPL']))"
-```
-
-### MCP Inspector (manual testing)
-
-The fastest way to exercise every tool/prompt without wiring up Claude at all. Requires **Node.js ≥22.19.0** on PATH (`node --version` to check) — the Inspector itself is a Node package pulled on demand via `npx`, nothing to install ahead of time.
-
-```bash
-uv run mcp dev src/finance_mcp/server.py
-```
-
-This prints a URL like `http://127.0.0.1:6274?MCP_INSPECTOR_API_TOKEN=...` and opens it in your browser — a UI where you pick a tool, fill in its arguments, and see both the exact JSON-RPC request sent and the raw response returned in the Messages panel. Good first stop after any change: try `get_quote` with `["AAPL"]` and with an invalid ticker to confirm both the happy path and the error path look right. Stop it with Ctrl+C in the terminal it's running in when you're done.
-
-<details>
-<summary>Troubleshooting: "Cannot find native binding" or "styleText" errors</summary>
-
-Both are caused by a stale `npx` cache left over from a Node.js version upgrade (npm's optional-dependency resolution installs platform/version-specific native binaries the first time it runs a package, and they don't get refreshed automatically). Fix:
-
-```bash
-npm cache clean --force
-```
-
-If that alone doesn't fix it, find and delete the specific cached install under `%LOCALAPPDATA%\npm-cache\_npx\<hash>\` (the one whose `package.json` mentions `@modelcontextprotocol/inspector`), then rerun `uv run mcp dev ...` to force a clean reinstall.
-</details>
-
-## Connect to Claude
-
-### Claude Desktop
-
-**Option A — automatic:**
-
-```bash
-uv run mcp install src/finance_mcp/server.py --name finance-mcp
-```
-
-**Option B — manual:** add this to your `claude_desktop_config.json` (on Windows: `%APPDATA%\Claude\claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "finance-mcp": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "D:\\Programming Projects\\Finance-MCP",
-        "run",
-        "finance-mcp"
-      ]
-    }
-  }
-}
-```
-
-Restart Claude Desktop afterward. The tools and `analyze_stock` prompt should appear under the 🔌 icon in a new chat.
-
-### Claude Code
-
-**Option A — CLI:**
-
-```bash
-claude mcp add finance-mcp -- uv --directory "D:\Programming Projects\Finance-MCP" run finance-mcp
-```
-
-**Option B — project-scoped `.mcp.json`** (checked into the repo, shared with anyone who opens this project):
-
-```json
-{
-  "mcpServers": {
-    "finance-mcp": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "D:\\Programming Projects\\Finance-MCP",
-        "run",
-        "finance-mcp"
-      ]
-    }
-  }
-}
-```
-
-Verify with `/mcp` inside Claude Code — `finance-mcp` should show as connected.
-
-> **Note:** an MCP server connects once at session startup. If you add/update the server config or pull code changes, restart the Claude Desktop app or start a new Claude Code session to pick them up — an already-running session keeps talking to the old process.
-
-## Project Layout
+### Project Layout
 
 ```
 src/finance_mcp/
@@ -181,3 +72,39 @@ tests/
 └── test_formatting.py
 ```
 
+### Requirements
+
+- Python 3.10 or later.
+- [`uv`](https://docs.astral.sh/uv/). If you do not have uv, install it: `pip install uv`.
+- Node.js 22.19.0 or later, with `npx` on PATH. You need this only for the MCP Inspector, below. You do not need it to run the server.
+
+### Install
+
+```bash
+uv sync
+```
+
+This command creates `.venv/`. It installs the runtime and development dependencies: `mcp[cli]`, `yfinance`, `pandas`, `pytest`, `ruff`.
+
+### Run tests and lint
+
+```bash
+uv run pytest          # full suite
+uv run ruff check .    # lint
+```
+
+The test suite mocks all `yfinance` calls. It runs offline. There is no automated live-network test. Use the [MCP Inspector](#mcp-inspector-manual-testing) or the command below to do a manual smoke check with real data:
+
+```bash
+uv run python -c "from finance_mcp import server; print(server.get_quote(['AAPL']))"
+```
+
+### MCP Inspector (manual testing)
+
+Test every tool and prompt without wiring up a client, using the [MCP Inspector](https://github.com/modelcontextprotocol/inspector) (requires Node.js 22.19.0+ on PATH):
+
+```bash
+uv run mcp dev src/finance_mcp/server.py
+```
+
+This opens a browser UI where you pick a tool, fill in its arguments, and inspect the raw JSON-RPC request/response. Try `get_quote(["AAPL"])` and an invalid ticker to check both the happy and error paths.
